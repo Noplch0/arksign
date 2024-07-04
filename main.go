@@ -23,22 +23,33 @@ func main() {
 		var passwd string
 		fmt.Scanln(&passwd)
 		settings.AddAcountData(phone, passwd)
+		data, _ := settings.GetAccountData("configs/accounts.json")
+		skisland.DoAll(data)
 	}
 	if *o {
-		skisland.DoAll()
+		data, num := settings.GetAccountData("configs/accounts.json")
+		if num != 0 {
+			skisland.DoAll(data)
+		}
 
 	} else {
-		hour, minute, err := settings.ParseTime(*t)
-		if err != nil {
-			fmt.Println(err)
-		}
-		fmt.Printf("将在每日%02d:%02d签到\n", hour, minute)
-		cronstring := fmt.Sprintf("%d %d * * *", minute, hour)
-		c := cron.New()
-		c.AddFunc(cronstring, skisland.DoAll)
-		c.Start()
-		for {
-			time.Sleep(time.Second)
+		data, num := settings.GetAccountData("configs/accounts.json")
+		if num != 0 {
+
+			hour, minute, err := settings.ParseTime(*t)
+			if err != nil {
+				fmt.Println(err)
+			}
+			fmt.Printf("将在每日%02d:%02d签到\n", hour, minute)
+			cronstring := fmt.Sprintf("%d %d * * *", minute, hour)
+			c := cron.New()
+			c.AddFunc(cronstring, func() {
+				skisland.DoAll(data)
+			})
+			c.Start()
+			for {
+				time.Sleep(time.Second)
+			}
 		}
 	}
 }

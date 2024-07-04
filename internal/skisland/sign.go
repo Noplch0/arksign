@@ -311,11 +311,10 @@ func GetAwardlist(awardlist map[string]string) string {
 	return result
 }
 
-func DoAll() {
-	data, err := settings.ReadAccountData("configs/accounts.json")
-	if err != nil {
-		fmt.Println(err)
-	}
+func DoAll(data settings.AccountList) {
+
+	success := 0
+	failed := 0
 	for i := range data.List {
 		if !RefreshToken(&data.List[i]) {
 			fmt.Println("刷新token失败!")
@@ -327,17 +326,17 @@ func DoAll() {
 		for _, char := range charlist {
 			result, err := DoSign(cred, fixToken, char)
 			if err != nil {
+				failed++
 				fmt.Printf("%s %s ", char["server"], char["name"])
 				fmt.Println(err)
 			} else {
+				success++
 				fmt.Printf("%s %s 签到成功\n", char["server"], char["name"])
 				fmt.Printf("本次签到获取奖励：%s", GetAwardlist(result))
 			}
 		}
 	}
-	err = settings.SaveAccountData("configs/accounts.json", data)
-	if err != nil {
-		fmt.Println(err)
-	}
+	fmt.Printf("本次签到成功 %d 次 失败 %d 次\n", success, failed)
+
 	return
 }

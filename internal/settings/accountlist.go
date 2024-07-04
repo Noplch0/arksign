@@ -2,6 +2,7 @@ package settings
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/thedevsaddam/gojsonq"
 	"os"
 )
@@ -68,4 +69,17 @@ func AddAcountData(phone string, passwd string) bool {
 		return false
 	}
 	return true
+}
+
+func GetAccountData(filepath string) (AccountList, int) {
+	data, err := ReadAccountData(filepath)
+	if err != nil {
+		fmt.Println(err)
+	}
+	if len(data.List) == 0 {
+		fmt.Println("未检测到已添加的账号！")
+		return data, 0
+	} else {
+		return data, len(data.List)
+	}
 }

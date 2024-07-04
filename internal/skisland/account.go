@@ -28,7 +28,7 @@ func RefreshToken(data *settings.AccountData) bool {
 			fmt.Println(err)
 			return false
 		}
-		fmt.Printf(" 已替换为:%s", data.Token)
+		fmt.Printf("已替换为:%s\n", data.Token)
 		return true
 	} else {
 		fmt.Printf("Token(%#v) is valid\n", (*data).Token)
