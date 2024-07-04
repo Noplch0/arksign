@@ -1,0 +1,5 @@
+.idea/
+test/
+configs/accounts.json
+*.exe
+main
