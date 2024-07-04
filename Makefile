@@ -8,8 +8,7 @@ clean:
 setup:
 	mkdir -p /build
 
-all:
-	setup build-linux build-windows build-darwin
+all:setup build-linux build-windows build-darwin
 
 build-linux:
 	${BUILD_ENV} GOARCH=amd64 GOOS=linux go build main.go -o build/${GOOS}_${GOARCH}_${TARGET_EXEC}
