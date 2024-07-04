@@ -23,8 +23,11 @@ func main() {
 		var passwd string
 		fmt.Scanln(&passwd)
 		settings.AddAcountData(phone, passwd)
-		data, _ := settings.GetAccountData("configs/accounts.json")
-		skisland.DoAll(data)
+		data, num := settings.GetAccountData("configs/accounts.json")
+		if num != 0 {
+			skisland.DoAll(data)
+		}
+		return
 	}
 	if *o {
 		data, num := settings.GetAccountData("configs/accounts.json")

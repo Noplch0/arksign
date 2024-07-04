@@ -78,6 +78,9 @@ func GetAccountData(filepath string) (AccountList, int) {
 	}
 	if len(data.List) == 0 {
 		fmt.Println("未检测到已添加的账号！")
+		fmt.Printf("Press any key to exit...")
+		b := make([]byte, 1)
+		os.Stdin.Read(b)
 		return data, 0
 	} else {
 		return data, len(data.List)

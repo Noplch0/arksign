@@ -336,6 +336,7 @@ func DoAll(data settings.AccountList) {
 			}
 		}
 	}
+	settings.SaveAccountData("configs/accounts.json", data)
 	fmt.Printf("本次签到成功 %d 次 失败 %d 次\n", success, failed)
 
 	return
