@@ -3,3 +3,4 @@ test/
 configs/accounts.json
 *.exe
 main
+build/

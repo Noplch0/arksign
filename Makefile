@@ -1,20 +1,21 @@
 BUILD_ENV := CGO_ENABLED=0
-BUILD=`date +%FT%T%z`
+BUILD := `date +%FT%T%z`
 TARGET_EXEC := arkSign
 
 clean:
 	rm -rf build
 
 setup:
-	mkdir -p /build
+	mkdir -p build
 
-all:setup build-linux build-windows build-darwin
+all: setup build-linux build-windows build-darwin
 
 build-linux:
-	${BUILD_ENV} GOARCH=amd64 GOOS=linux go build main.go -o build/${GOOS}_${GOARCH}_${TARGET_EXEC}
+	GOARCH=amd64 GOOS=linux ${BUILD_ENV} go build -o build/linux_amd64_${TARGET_EXEC} main.go
 
 build-windows:
-	${BUILD_ENV} GOARCH=amd64 GOOS=windows go build main.go -o build/${GOOS}_${GOARCH}_${TARGET_EXEC}
+	GOARCH=amd64 GOOS=windows ${BUILD_ENV} go build -o build/windows_amd64_${TARGET_EXEC}.exe main.go
 
-budil-darwin:
-	${BUILD_ENV} GOARCH=amd64 GOOS=darwin go build main.go -o build/${GOOS}_${GOARCH}_${TARGET_EXEC}
+build-darwin:
+	GOARCH=amd64 GOOS=darwin ${BUILD_ENV} go build -o build/darwin_amd64_${TARGET_EXEC} main.go
+
