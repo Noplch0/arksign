@@ -306,7 +306,7 @@ func DoSign(cred string, key string, charinfo map[string]string) (map[string]str
 func GetAwardlist(awardlist map[string]string) string {
 	var result string
 	for k, v := range awardlist {
-		result += "\n - " + k + "\t" + v
+		result += "\n - " + k + "\t" + v + "\n"
 	}
 	return result
 }
