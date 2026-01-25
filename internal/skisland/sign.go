@@ -20,12 +20,30 @@ import (
 	"time"
 )
 
-const urlGetTokenByPwd = "https://as.hypergryph.com/user/auth/v1/token_by_phone_password"
-const urlOauth = "https://as.hypergryph.com/user/oauth2/v2/grant"
-const urlCerd = "https://zonai.skland.com/api/v1/user/auth/generate_cred_by_code"
-const urlPlayerInfo = "https://zonai.skland.com/api/v1/game/player/binding"
-const urlSign = "https://zonai.skland.com/api/v1/game/attendance"
-const urlVerify = "https://as.hypergryph.com/user/info/v1/basic"
+// 常量定义
+const (
+	urlGetTokenByPwd = "https://as.hypergryph.com/user/auth/v1/token_by_phone_password"
+	urlOauth         = "https://as.hypergryph.com/user/oauth2/v2/grant"
+	urlCerd          = "https://zonai.skland.com/api/v1/user/auth/generate_cred_by_code"
+	urlPlayerInfo    = "https://zonai.skland.com/api/v1/game/player/binding"
+	urlVerify        = "https://as.hypergryph.com/user/info/v1/basic"
+)
+
+// 游戏签到地址映射
+var signUrlMap = map[string]string{
+	"arknights": "https://zonai.skland.com/api/v1/game/attendance",
+	"endfield":  "https://zonai.skland.com/api/v1/game/endfield/attendance",
+}
+
+type CharacterInfo struct {
+	AppCode string 
+	UID     string
+	GameId  string
+	Server  string
+	Name    string
+}
+
+// ... 省略 loginInfo, OauthInfo, CerdInfo, header 等结构体定义 (与前文一致) ...
 
 type loginInfo struct {
 	Phone    string `json:"phone"`
@@ -34,28 +52,13 @@ type loginInfo struct {
 
 type OauthInfo struct {
 	Token    string `json:"token"`
-	Appcode  string `json:"appCode"`
+	AppCode  string `json:"appCode"`
 	TypeCode int    `json:"type"`
-}
-
-func getOauthInfo(token string) OauthInfo {
-	return OauthInfo{
-		token,
-		"4ca99fa6b56cc2ba",
-		0,
-	}
 }
 
 type CerdInfo struct {
 	Kind int    `json:"kind"`
 	Code string `json:"code"`
-}
-
-func getCerdInfo(code string) CerdInfo {
-	return CerdInfo{
-		1,
-		code,
-	}
 }
 
 type header struct {
@@ -64,6 +67,7 @@ type header struct {
 	Did       string `json:"dId"`
 	Vname     string `json:"vName"`
 }
+
 type nHeader struct {
 	Sign string `json:"sign"`
 	header
@@ -76,6 +80,8 @@ type headerAgent struct {
 	Connection string `header:"Connection"`
 	nHeader
 }
+
+// --- 辅助工具函数 ---
 
 func agent(cred string, header2 nHeader) headerAgent {
 	return headerAgent{
@@ -106,88 +112,7 @@ func getStrRespBody(resp *http.Response) string {
 
 func getRespBody(resp string, index string) interface{} {
 	reJson := gojsonq.New().FromString(resp)
-	var result = reJson.Find(index)
-	return result
-}
-
-func GetToken(phone string, passwd string) (string, error) {
-	var accountInfo = loginInfo{Phone: phone, Password: passwd}
-	accountJson, _ := json.Marshal(accountInfo)
-	resp, err := http.Post(urlGetTokenByPwd, "application/json", bytes.NewBuffer(accountJson))
-	if err != nil {
-		return "", errors.New("login Failed(incorrect phone or password)")
-	}
-	respString := getStrRespBody(resp)
-	if resp.StatusCode != 200 {
-		return "", errors.New("login Failed(incorrect phone? or password)")
-	}
-	s := getRespBody(respString, "data.token")
-	result := s.(string)
-	return result, nil
-}
-
-func VerifyToken(token string) bool {
-	params := url.Values{}
-	parseUrl, err := url.Parse(urlVerify)
-	if err != nil {
-		log.Println(err)
-		return false
-	}
-	params.Set("token", token)
-	parseUrl.RawQuery = params.Encode()
-	urlVerifyWithParams := parseUrl.String()
-	resp, err := http.Get(urlVerifyWithParams)
-	if err != nil {
-		log.Println(err)
-		return false
-	}
-	respString := getStrRespBody(resp)
-	s := getRespBody(respString, "msg")
-	result := s.(string)
-	if result != "OK" {
-		fmt.Printf("token:%#v已失效\n", token)
-		return false
-	}
-	return true
-}
-
-func GetOauth(token string) string {
-	info := getOauthInfo(token)
-	js, _ := json.Marshal(info)
-	resp, err := http.Post(urlOauth, "application/json", bytes.NewBuffer(js))
-	if err != nil {
-		log.Println(err)
-	}
-	respString := getStrRespBody(resp)
-	s := getRespBody(respString, "data.code")
-	result := s.(string)
-	return result
-}
-
-func GetCerd(code string) (string, string) {
-	info := getCerdInfo(code)
-	js, _ := json.Marshal(info)
-	resp, err := http.Post(urlCerd, "application/json", bytes.NewBuffer(js))
-	if err != nil {
-		log.Println(err)
-	}
-	respString := getStrRespBody(resp)
-	cred := getRespBody(respString, "data.cred")
-	fixToken := getRespBody(respString, "data.token")
-
-	return cred.(string), fixToken.(string)
-}
-
-func EncodeSignCode(code string, secret string) string {
-	key := []byte(secret)
-	h := hmac.New(sha256.New, key)
-	h.Write([]byte(code))
-	sha := hex.EncodeToString(h.Sum(nil))
-
-	hash := md5.New()
-	hash.Write([]byte(sha))
-	result := hex.EncodeToString(hash.Sum(nil))
-	return result
+	return reJson.Find(index)
 }
 
 func string2Header(text string) (http.Header, error) {
@@ -198,146 +123,241 @@ func string2Header(text string) (http.Header, error) {
 	}
 	header := make(http.Header)
 	for k, v := range headers {
-		strValue, ok := v.(string)
-		if ok {
+		if strValue, ok := v.(string); ok {
 			header.Set(k, strValue)
-		} else {
-			return nil, fmt.Errorf("error parsing JSON: unknown type: %T", v)
 		}
 	}
 	return header, nil
 }
 
-func GetCharacterList(cerd string, key string) map[int]map[string]string {
-	header1 := setHeader()
-	parses, _ := url.Parse(urlPlayerInfo)
-	query := parses.Query().Encode()
-	path := parses.Path
-	jsoncode, _ := json.Marshal(header1)
-	originCode := path + query + header1.Timestamp + string(jsoncode)
-	var newheader map[string]interface{}
-	if err := json.Unmarshal(jsoncode, &newheader); err != nil {
-		fmt.Println(err)
-	}
-	newheader["sign"] = EncodeSignCode(originCode, key)
+func EncodeSignCode(code string, secret string) string {
+	key := []byte(secret)
+	h := hmac.New(sha256.New, key)
+	h.Write([]byte(code))
+	sha := hex.EncodeToString(h.Sum(nil))
 
-	nh := nHeader{
-		Sign:   newheader["sign"].(string),
-		header: header1,
-	}
-
-	header2 := agent(cerd, nh)
-	headerjson, _ := json.Marshal(header2)
-	headertext := string(headerjson)
-
-	req, err := http.NewRequest("GET", urlPlayerInfo, nil)
-	if err != nil {
-		fmt.Println(err)
-	}
-	headers, _ := string2Header(headertext)
-	req.Header = headers
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		fmt.Println(err)
-	}
-	body := getStrRespBody(resp)
-	data := getRespBody(body, "data.list")
-	charlist := make(map[int]map[string]string)
-	var a = 0
-	for _, k := range data.([]interface{}) {
-		for _, c := range k.(map[string]any)["bindingList"].([]interface{}) {
-			submap := make(map[string]string)
-			cinfo := c.(map[string]any)
-			submap["uid"] = cinfo["uid"].(string)
-			submap["gameId"] = cinfo["channelMasterId"].(string)
-			submap["server"] = cinfo["channelName"].(string)
-			submap["name"] = cinfo["nickName"].(string)
-			charlist[a] = submap
-		}
-	}
-	return charlist
+	hash := md5.New()
+	hash.Write([]byte(sha))
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
-func DoSign(cred string, key string, charinfo map[string]string) (map[string]string, error) {
-	parses, _ := url.Parse(urlSign)
-	path := parses.Path
-	body := make(map[string]string)
-	body["uid"] = charinfo["uid"]
-	body["gameId"] = charinfo["gameId"]
-	jsonbody, _ := json.Marshal(body)
-	intent := string(jsonbody)
-	header1 := setHeader()
-	jsoncode, _ := json.Marshal(header1)
-	originCode := path + intent + header1.Timestamp + string(jsoncode)
-	sign := EncodeSignCode(originCode, key)
-	h2 := agent(cred, nHeader{
-		Sign:   sign,
-		header: header1,
-	})
-	headerjson, _ := json.Marshal(h2)
-	headertext := string(headerjson)
-	headers, _ := string2Header(headertext)
-	req, err := http.NewRequest("POST", urlSign, bytes.NewBuffer(jsonbody))
+// --- 核心业务函数 ---
+
+func GetToken(phone string, passwd string) (string, error) {
+	var accountInfo = loginInfo{Phone: phone, Password: passwd}
+	accountJson, _ := json.Marshal(accountInfo)
+	resp, err := http.Post(urlGetTokenByPwd, "application/json", bytes.NewBuffer(accountJson))
 	if err != nil {
-		return nil, err
+		return "", errors.New("login Failed")
 	}
+	respString := getStrRespBody(resp)
+	if resp.StatusCode != 200 {
+		return "", errors.New("login Failed(status code not 200)")
+	}
+	s := getRespBody(respString, "data.token")
+	return s.(string), nil
+}
+
+func VerifyToken(token string) bool {
+	params := url.Values{}
+	params.Set("token", token)
+	resp, err := http.Get(urlVerify + "?" + params.Encode())
+	if err != nil {
+		return false
+	}
+	respString := getStrRespBody(resp)
+	result := getRespBody(respString, "msg").(string)
+	return result == "OK"
+}
+
+func GetOauth(token string) string {
+	info := OauthInfo{token, "4ca99fa6b56cc2ba", 0}
+	js, _ := json.Marshal(info)
+	resp, _ := http.Post(urlOauth, "application/json", bytes.NewBuffer(js))
+	return getRespBody(getStrRespBody(resp), "data.code").(string)
+}
+
+func GetCerd(code string) (string, string) {
+	info := CerdInfo{1, code}
+	js, _ := json.Marshal(info)
+	resp, _ := http.Post(urlCerd, "application/json", bytes.NewBuffer(js))
+	respString := getStrRespBody(resp)
+	cred := getRespBody(respString, "data.cred")
+	fixToken := getRespBody(respString, "data.token")
+	return cred.(string), fixToken.(string)
+}
+
+// GetCharacterList 改动点：增加了对终末地角色的过滤
+func GetCharacterList(cred string, key string) []CharacterInfo {
+	h1 := setHeader()
+	u, _ := url.Parse(urlPlayerInfo)
+	jsoncode, _ := json.Marshal(h1)
+	originCode := u.Path + u.Query().Encode() + h1.Timestamp + string(jsoncode)
+	sign := EncodeSignCode(originCode, key)
+
+	nh := nHeader{Sign: sign, header: h1}
+	h2 := agent(cred, nh)
+	headerjson, _ := json.Marshal(h2)
+	headers, _ := string2Header(string(headerjson))
+
+	req, _ := http.NewRequest("GET", urlPlayerInfo, nil)
+	req.Header = headers
+	resp, _ := http.DefaultClient.Do(req)
+	
+	body := getStrRespBody(resp)
+	data := getRespBody(body, "data.list")
+	
+	var charList []CharacterInfo
+	if data == nil {
+		return charList
+	}
+
+	for _, appItem := range data.([]interface{}) {
+		app := appItem.(map[string]any)
+		appCode := app["appCode"].(string)
+		bindingList := app["bindingList"].([]interface{})
+
+		for _, b := range bindingList {
+			binding := b.(map[string]any)
+			
+			// --- 新增：针对终末地未创建角色情况的过滤逻辑 ---
+			if appCode == "endfield" {
+				outerName, _ := binding["nickName"].(string)
+				defaultRole, hasDefault := binding["defaultRole"].(map[string]any)
+				
+				// 如果外层昵称为空，且没有默认角色（或默认角色昵称也为空），则认为没玩这个游戏
+				if outerName == "" && (!hasDefault || defaultRole == nil || defaultRole["nickname"] == "") {
+					fmt.Println("未找到终末地角色数据，已自动跳过。")
+					continue 
+				}
+			}
+			// --------------------------------------------
+
+			info := CharacterInfo{
+				AppCode: appCode,
+				UID:     binding["uid"].(string),
+				GameId:  fmt.Sprintf("%v", binding["gameId"]),
+				Server:  binding["channelName"].(string),
+			}
+
+			// 名字提取
+			if n, ok := binding["nickName"].(string); ok && n != "" {
+				info.Name = n
+			} else if dr, ok := binding["defaultRole"].(map[string]any); ok {
+				info.Name = dr["nickname"].(string)
+			} else {
+				info.Name = "玩家"
+			}
+			charList = append(charList, info)
+		}
+	}
+	return charList
+}
+
+func DoSign(cred string, key string, char CharacterInfo) (map[string]string, error) {
+	targetUrl, ok := signUrlMap[char.AppCode]
+	if !ok {
+		return nil, fmt.Errorf("不支持的游戏类型: %s", char.AppCode)
+	}
+
+	u, _ := url.Parse(targetUrl)
+	bodyData := map[string]string{"uid": char.UID, "gameId": char.GameId}
+	jsonBody, _ := json.Marshal(bodyData)
+	
+	h1 := setHeader()
+	h1Json, _ := json.Marshal(h1)
+	originCode := u.Path + string(jsonBody) + h1.Timestamp + string(h1Json)
+	sign := EncodeSignCode(originCode, key)
+
+	h2 := agent(cred, nHeader{Sign: sign, header: h1})
+	h2Json, _ := json.Marshal(h2)
+	headers, _ := string2Header(string(h2Json))
+
+	req, _ := http.NewRequest("POST", targetUrl, bytes.NewBuffer(jsonBody))
 	req.Header = headers
 	req.Header.Set("Content-Type", "application/json")
+	
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
+	
 	respString := getStrRespBody(resp)
-	message := getRespBody(respString, "code")
-	if int(message.(float64)) == 10001 {
-		return nil, fmt.Errorf("%s", "今日已签到！")
-	} else {
-		awarddata := getRespBody(respString, "data.awards")
-		awardlist := make(map[string]string)
-		for _, item := range awarddata.([]interface{}) {
-			name := item.(map[string]interface{})["resource"].(map[string]interface{})["name"].(string)
-			count := strconv.Itoa(int(item.(map[string]interface{})["count"].(float64)))
-			awardlist[name] = count
-		}
-		return awardlist, nil
+	code := int(getRespBody(respString, "code").(float64))
+
+	if code == 10001 {
+		return nil, fmt.Errorf("今日已签到")
+	} else if code != 0 {
+		msg := getRespBody(respString, "message").(string)
+		return nil, fmt.Errorf("失败: %s", msg)
 	}
+
+	awardList := make(map[string]string)
+	if char.AppCode == "endfield" {
+		awardIds := getRespBody(respString, "data.awardIds").([]interface{})
+		resMap := getRespBody(respString, "data.resourceInfoMap").(map[string]interface{})
+		for _, item := range awardIds {
+			id := item.(map[string]interface{})["id"].(string)
+			if res, exists := resMap[id].(map[string]interface{}); exists {
+				name := res["name"].(string)
+				count := strconv.Itoa(int(res["count"].(float64)))
+				awardList[name] = count
+			}
+		}
+	} else {
+		awards := getRespBody(respString, "data.awards").([]interface{})
+		for _, item := range awards {
+			obj := item.(map[string]interface{})
+			name := obj["resource"].(map[string]interface{})["name"].(string)
+			count := strconv.Itoa(int(obj["count"].(float64)))
+			awardList[name] = count
+		}
+	}
+	return awardList, nil
 }
 
 func GetAwardlist(awardlist map[string]string) string {
 	var result string
 	for k, v := range awardlist {
-		result += "\n - " + k + "\t" + v + "\n"
+		result += fmt.Sprintf("\n - %s \t %s", k, v)
 	}
-	return result
+	return result + "\n"
 }
 
-func DoAll(data settings.AccountList) {
-
+func DoAll(data settings.AccountList, isshowtimes bool) {
 	success := 0
 	failed := 0
+
 	for i := range data.List {
 		if !RefreshToken(&data.List[i]) {
-			fmt.Println("刷新token失败!")
-			return
+			fmt.Printf("账号 %s 认证失败\n", data.List[i].Phone)
+			continue
 		}
+
 		oauth := GetOauth(data.List[i].Token)
 		cred, fixToken := GetCerd(oauth)
-		charlist := GetCharacterList(cred, fixToken)
-		for _, char := range charlist {
+		chars := GetCharacterList(cred, fixToken)
+		
+		for _, char := range chars {
 			result, err := DoSign(cred, fixToken, char)
+			gameName := "明日方舟"
+			if char.AppCode == "endfield" {
+				gameName = "终末地"
+			}
+
 			if err != nil {
 				failed++
-				fmt.Printf("%s %s ", char["server"], char["name"])
-				fmt.Println(err)
+				fmt.Printf("[%s] %s %s: %v\n", gameName, char.Server, char.Name, err)
 			} else {
 				success++
-				fmt.Printf("%s %s 签到成功\n", char["server"], char["name"])
-				fmt.Printf("本次签到获取奖励：%s", GetAwardlist(result))
+				fmt.Printf("[%s] %s %s 签到成功！奖励：%s", gameName, char.Server, char.Name, GetAwardlist(result))
 			}
 		}
 	}
-	settings.SaveAccountData("configs/accounts.json", data)
-	fmt.Printf("本次签到成功 %d 次 失败 %d 次\n", success, failed)
 
-	return
+	settings.SaveAccountData("configs/accounts.json", data)
+	if isshowtimes {
+		fmt.Printf("\n任务结束：成功 %d, 失败 %d\n", success, failed)
+	}
 }
+

@@ -38,7 +38,7 @@ func main() {
 	} else {
 		data, num := settings.GetAccountData("configs/accounts.json")
 		if num != 0 {
-
+			
 			hour, minute, err := settings.ParseTime(*t)
 			if err != nil {
 				fmt.Println(err)
@@ -47,7 +47,7 @@ func main() {
 			cronstring := fmt.Sprintf("%d %d * * *", minute, hour)
 			c := cron.New()
 			c.AddFunc(cronstring, func() {
-				skisland.DoAll(data)
+				skisland.DoAll(data,false)
 			})
 			c.Start()
 			for {
