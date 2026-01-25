@@ -25,14 +25,14 @@ func main() {
 		settings.AddAcountData(phone, passwd)
 		data, num := settings.GetAccountData("configs/accounts.json")
 		if num != 0 {
-			skisland.DoAll(data)
+			skisland.DoAll(data,false)
 		}
 		return
 	}
 	if *o {
 		data, num := settings.GetAccountData("configs/accounts.json")
 		if num != 0 {
-			skisland.DoAll(data)
+			skisland.DoAll(data,false)
 		}
 
 	} else {
