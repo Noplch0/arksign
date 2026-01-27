@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/thedevsaddam/gojsonq"
 	"io"
 	"log"
 	"net/http"
@@ -18,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/thedevsaddam/gojsonq"
 )
 
 // 常量定义
@@ -35,15 +36,17 @@ var signUrlMap = map[string]string{
 	"endfield":  "https://zonai.skland.com/api/v1/game/endfield/attendance",
 }
 
-type CharacterInfo struct {
-	AppCode string 
-	UID     string
-	GameId  string
-	Server  string
-	Name    string
-}
+// --- 结构体定义 ---
 
-// ... 省略 loginInfo, OauthInfo, CerdInfo, header 等结构体定义 (与前文一致) ...
+type CharacterInfo struct {
+	AppCode  string // arknights 或 endfield
+	UID      string
+	GameId   string
+	Server   string
+	Name     string
+	RoleId   string // 终末地特有
+	ServerId string // 终末地特有
+}
 
 type loginInfo struct {
 	Phone    string `json:"phone"`
@@ -81,7 +84,21 @@ type headerAgent struct {
 	nHeader
 }
 
-// --- 辅助工具函数 ---
+// --- 加密逻辑 ---
+
+// EncodeSignCode 计算签名：$Sign = MD5(HMAC\_SHA256(Secret, RawCode))$
+func EncodeSignCode(code string, secret string) string {
+	key := []byte(secret)
+	h := hmac.New(sha256.New, key)
+	h.Write([]byte(code))
+	sha := hex.EncodeToString(h.Sum(nil))
+
+	hash := md5.New()
+	hash.Write([]byte(sha))
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+// --- 辅助工具 ---
 
 func agent(cred string, header2 nHeader) headerAgent {
 	return headerAgent{
@@ -119,7 +136,7 @@ func string2Header(text string) (http.Header, error) {
 	var headers map[string]interface{}
 	err := json.NewDecoder(strings.NewReader(text)).Decode(&headers)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing JSON: %w", err)
+		return nil, err
 	}
 	header := make(http.Header)
 	for k, v := range headers {
@@ -130,18 +147,7 @@ func string2Header(text string) (http.Header, error) {
 	return header, nil
 }
 
-func EncodeSignCode(code string, secret string) string {
-	key := []byte(secret)
-	h := hmac.New(sha256.New, key)
-	h.Write([]byte(code))
-	sha := hex.EncodeToString(h.Sum(nil))
-
-	hash := md5.New()
-	hash.Write([]byte(sha))
-	return hex.EncodeToString(hash.Sum(nil))
-}
-
-// --- 核心业务函数 ---
+// --- 核心业务逻辑 ---
 
 func GetToken(phone string, passwd string) (string, error) {
 	var accountInfo = loginInfo{Phone: phone, Password: passwd}
@@ -165,9 +171,7 @@ func VerifyToken(token string) bool {
 	if err != nil {
 		return false
 	}
-	respString := getStrRespBody(resp)
-	result := getRespBody(respString, "msg").(string)
-	return result == "OK"
+	return getRespBody(getStrRespBody(resp), "msg").(string) == "OK"
 }
 
 func GetOauth(token string) string {
@@ -187,7 +191,7 @@ func GetCerd(code string) (string, string) {
 	return cred.(string), fixToken.(string)
 }
 
-// GetCharacterList 改动点：增加了对终末地角色的过滤
+// GetCharacterList 获取并过滤角色列表
 func GetCharacterList(cred string, key string) []CharacterInfo {
 	h1 := setHeader()
 	u, _ := url.Parse(urlPlayerInfo)
@@ -197,16 +201,16 @@ func GetCharacterList(cred string, key string) []CharacterInfo {
 
 	nh := nHeader{Sign: sign, header: h1}
 	h2 := agent(cred, nh)
-	headerjson, _ := json.Marshal(h2)
-	headers, _ := string2Header(string(headerjson))
+	h2Json, _ := json.Marshal(h2)
+	headers, _ := string2Header(string(h2Json))
 
 	req, _ := http.NewRequest("GET", urlPlayerInfo, nil)
 	req.Header = headers
 	resp, _ := http.DefaultClient.Do(req)
-	
+
 	body := getStrRespBody(resp)
 	data := getRespBody(body, "data.list")
-	
+
 	var charList []CharacterInfo
 	if data == nil {
 		return charList
@@ -219,20 +223,8 @@ func GetCharacterList(cred string, key string) []CharacterInfo {
 
 		for _, b := range bindingList {
 			binding := b.(map[string]any)
-			
-			// --- 新增：针对终末地未创建角色情况的过滤逻辑 ---
-			if appCode == "endfield" {
-				outerName, _ := binding["nickName"].(string)
-				defaultRole, hasDefault := binding["defaultRole"].(map[string]any)
-				
-				// 如果外层昵称为空，且没有默认角色（或默认角色昵称也为空），则认为没玩这个游戏
-				if outerName == "" && (!hasDefault || defaultRole == nil || defaultRole["nickname"] == "") {
-					fmt.Println("未找到终末地角色数据，已自动跳过。")
-					continue 
-				}
-			}
-			// --------------------------------------------
 
+			// --- 核心改进：终末地角色判定与数据提取 ---
 			info := CharacterInfo{
 				AppCode: appCode,
 				UID:     binding["uid"].(string),
@@ -240,13 +232,21 @@ func GetCharacterList(cred string, key string) []CharacterInfo {
 				Server:  binding["channelName"].(string),
 			}
 
-			// 名字提取
-			if n, ok := binding["nickName"].(string); ok && n != "" {
-				info.Name = n
-			} else if dr, ok := binding["defaultRole"].(map[string]any); ok {
+			if appCode == "endfield" {
+				dr, ok := binding["defaultRole"].(map[string]any)
+				if !ok || dr == nil || dr["nickname"] == "" {
+					fmt.Println("未找到终末地角色数据，已自动跳过。")
+					continue
+				}
 				info.Name = dr["nickname"].(string)
+				info.RoleId = dr["roleId"].(string)
+				info.ServerId = dr["serverId"].(string)
 			} else {
-				info.Name = "玩家"
+				if name, ok := binding["nickName"].(string); ok && name != "" {
+					info.Name = name
+				} else {
+					info.Name = "方舟玩家"
+				}
 			}
 			charList = append(charList, info)
 		}
@@ -254,6 +254,7 @@ func GetCharacterList(cred string, key string) []CharacterInfo {
 	return charList
 }
 
+// DoSign 执行签到动作
 func DoSign(cred string, key string, char CharacterInfo) (map[string]string, error) {
 	targetUrl, ok := signUrlMap[char.AppCode]
 	if !ok {
@@ -263,7 +264,7 @@ func DoSign(cred string, key string, char CharacterInfo) (map[string]string, err
 	u, _ := url.Parse(targetUrl)
 	bodyData := map[string]string{"uid": char.UID, "gameId": char.GameId}
 	jsonBody, _ := json.Marshal(bodyData)
-	
+
 	h1 := setHeader()
 	h1Json, _ := json.Marshal(h1)
 	originCode := u.Path + string(jsonBody) + h1.Timestamp + string(h1Json)
@@ -276,12 +277,18 @@ func DoSign(cred string, key string, char CharacterInfo) (map[string]string, err
 	req, _ := http.NewRequest("POST", targetUrl, bytes.NewBuffer(jsonBody))
 	req.Header = headers
 	req.Header.Set("Content-Type", "application/json")
-	
+
+	// --- 关键：注入终末地特有的角色标识 Header ---
+	if char.AppCode == "endfield" && char.RoleId != "" {
+		skGameRole := fmt.Sprintf("%s_%s_%s", char.GameId, char.RoleId, char.ServerId)
+		req.Header.Set("sk-game-role", skGameRole)
+	}
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	respString := getStrRespBody(resp)
 	code := int(getRespBody(respString, "code").(float64))
 
@@ -293,6 +300,7 @@ func DoSign(cred string, key string, char CharacterInfo) (map[string]string, err
 	}
 
 	awardList := make(map[string]string)
+	// --- 奖励解析逻辑 ---
 	if char.AppCode == "endfield" {
 		awardIds := getRespBody(respString, "data.awardIds").([]interface{})
 		resMap := getRespBody(respString, "data.resourceInfoMap").(map[string]interface{})
@@ -308,13 +316,14 @@ func DoSign(cred string, key string, char CharacterInfo) (map[string]string, err
 		awards := getRespBody(respString, "data.awards").([]interface{})
 		for _, item := range awards {
 			obj := item.(map[string]interface{})
-			name := obj["resource"].(map[string]interface{})["name"].(string)
-			count := strconv.Itoa(int(obj["count"].(float64)))
-			awardList[name] = count
+			res := obj["resource"].(map[string]interface{})
+			awardList[res["name"].(string)] = strconv.Itoa(int(obj["count"].(float64)))
 		}
 	}
 	return awardList, nil
 }
+
+// --- 调度逻辑 ---
 
 func GetAwardlist(awardlist map[string]string) string {
 	var result string
@@ -325,39 +334,35 @@ func GetAwardlist(awardlist map[string]string) string {
 }
 
 func DoAll(data settings.AccountList, isshowtimes bool) {
-	success := 0
-	failed := 0
-
+	success, failed := 0, 0
 	for i := range data.List {
 		if !RefreshToken(&data.List[i]) {
-			fmt.Printf("账号 %s 认证失败\n", data.List[i].Phone)
+			fmt.Printf("账号 %s 刷新Token失败\n", data.List[i].Phone)
 			continue
 		}
 
 		oauth := GetOauth(data.List[i].Token)
 		cred, fixToken := GetCerd(oauth)
 		chars := GetCharacterList(cred, fixToken)
-		
+
 		for _, char := range chars {
 			result, err := DoSign(cred, fixToken, char)
-			gameName := "明日方舟"
+			displayName := "明日方舟"
 			if char.AppCode == "endfield" {
-				gameName = "终末地"
+				displayName = "终末地"
 			}
 
 			if err != nil {
 				failed++
-				fmt.Printf("[%s] %s %s: %v\n", gameName, char.Server, char.Name, err)
+				fmt.Printf("[%s] %s %s: %v\n", displayName, char.Server, char.Name, err)
 			} else {
 				success++
-				fmt.Printf("[%s] %s %s 签到成功！奖励：%s", gameName, char.Server, char.Name, GetAwardlist(result))
+				fmt.Printf("[%s] %s %s 签到成功！奖励：%s", displayName, char.Server, char.Name, GetAwardlist(result))
 			}
 		}
 	}
-
 	settings.SaveAccountData("configs/accounts.json", data)
 	if isshowtimes {
 		fmt.Printf("\n任务结束：成功 %d, 失败 %d\n", success, failed)
 	}
 }
-
