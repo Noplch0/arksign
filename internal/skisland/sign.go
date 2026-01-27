@@ -323,8 +323,6 @@ func DoSign(cred string, key string, char CharacterInfo) (map[string]string, err
 	return awardList, nil
 }
 
-// --- 调度逻辑 ---
-
 func GetAwardlist(awardlist map[string]string) string {
 	var result string
 	for k, v := range awardlist {
