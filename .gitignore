@@ -1,7 +1,29 @@
+# IDE
 .idea/
-test/
-configs/accounts.json
+.vscode/
+*.swp
+*.swo
+*~
+
+# 敏感数据 — 整个 configs 目录不提交
+configs/
+
+# 构建产物
+dist/
 *.exe
 main
-build/
+*.out
+*.test
+
+# 测试
+coverage.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
 .claude/
+
+# Go
+vendor/

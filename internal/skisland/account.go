@@ -15,7 +15,7 @@ func VerifyPassword(phone, password string) (string, error) {
 }
 
 func VerifyAccount(data settings.AccountData) bool {
-	fmt.Printf("Verifying account:%#v\n", data.Phone)
+	fmt.Printf("正在验证账号 %s ...\n", maskPhone(data.Phone))
 	return VerifyToken(data.Token)
 }
 
@@ -28,10 +28,18 @@ func RefreshToken(data *settings.AccountData) bool {
 			fmt.Println(err)
 			return false
 		}
-		fmt.Printf("已替换为:%s\n", data.Token)
+		fmt.Println("Token 已刷新")
 		return true
 	} else {
-		fmt.Printf("Token(%#v) is valid\n", (*data).Token)
+		fmt.Println("Token 有效")
 		return true
 	}
+}
+
+// maskPhone 隐藏手机号中间四位
+func maskPhone(phone string) string {
+	if len(phone) < 7 {
+		return "***"
+	}
+	return phone[:3] + "****" + phone[len(phone)-4:]
 }

@@ -1,10 +1,12 @@
 package settings
 
 import (
+	"arkSign/internal/crypto"
 	"encoding/json"
 	"fmt"
-	"github.com/thedevsaddam/gojsonq"
 	"os"
+
+	"github.com/thedevsaddam/gojsonq"
 )
 
 type AccountData struct {
@@ -17,12 +19,15 @@ type AccountList struct {
 	List []AccountData `json:"accounts"`
 }
 
-func ReadAccountData(filename string) (AccountList, error) {
-	EnsureFileExists(filename, `{"accounts": []}`)
-	js := gojsonq.New().File(filename)
+// readAccountDataPlaintext 回退函数：读取旧版明文 JSON 文件
+func readAccountDataPlaintext(rawBytes []byte) (AccountList, error) {
+	js := gojsonq.New().FromString(string(rawBytes))
 	accounts := js.Find("accounts")
 	var accountlist AccountList
 	accountlist.List = []AccountData{}
+	if accounts == nil {
+		return accountlist, nil
+	}
 	for _, r := range accounts.([]interface{}) {
 		inf := r.(map[string]interface{})
 		var temp AccountData
@@ -34,15 +39,51 @@ func ReadAccountData(filename string) (AccountList, error) {
 	return accountlist, nil
 }
 
-func SaveAccountData(filename string, data AccountList) error {
-	jdata, _ := json.MarshalIndent(data, "", "  ")
-	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+func ReadAccountData(filename string) (AccountList, error) {
+	EnsureFileExists(filename, "")
+
+	rawBytes, err := os.ReadFile(filename)
 	if err != nil {
-		return err
+		return AccountList{}, err
 	}
-	defer file.Close()
-	_, err = file.Write(jdata)
-	return nil
+
+	// 空文件：返回空列表
+	if len(rawBytes) == 0 {
+		return AccountList{List: []AccountData{}}, nil
+	}
+
+	// 尝试解密（新格式）
+	plaintext, decErr := crypto.Decrypt(rawBytes)
+	if decErr == nil {
+		var accountlist AccountList
+		if err := json.Unmarshal(plaintext, &accountlist); err != nil {
+			return AccountList{}, fmt.Errorf("解析解密后的账户数据失败: %w", err)
+		}
+		if accountlist.List == nil {
+			accountlist.List = []AccountData{}
+		}
+		return accountlist, nil
+	}
+
+	// 解密失败，回退到明文 JSON（兼容旧文件）
+	return readAccountDataPlaintext(rawBytes)
+}
+
+func SaveAccountData(filename string, data AccountList) error {
+	if data.List == nil {
+		data.List = []AccountData{}
+	}
+	jdata, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("序列化账户数据失败: %w", err)
+	}
+
+	encrypted, err := crypto.Encrypt(jdata)
+	if err != nil {
+		return fmt.Errorf("加密账户数据失败: %w", err)
+	}
+
+	return os.WriteFile(filename, encrypted, 0600)
 }
 
 func AddAcountData(phone string, passwd string) bool {
