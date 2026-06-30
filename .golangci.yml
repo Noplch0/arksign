@@ -1,0 +1,41 @@
+# golangci-lint 配置文件
+# 文档: https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 3m
+  go: "1.22"
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+linters-settings:
+  errcheck:
+    # 排除常见的不需要检查错误的函数
+    exclude-functions:
+      - fmt.Scanln
+      - fmt.Scan
+      - fmt.Scanf
+      - (*os.File).Close
+      - (*os.File).Write
+      - io.ReadAll
+      - (*github.com/robfig/cron/v3.Cron).AddFunc
+      - (*github.com/robfig/cron/v3.Cron).Start
+
+issues:
+  exclude-rules:
+    # 对于简单 CLI 工具，忽略某些 errcheck
+    - path: main.go
+      linters:
+        - errcheck
+      text: "Error return value is not checked"
+    # 测试文件放宽检查
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosimple
