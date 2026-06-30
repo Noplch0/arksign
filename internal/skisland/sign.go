@@ -30,6 +30,9 @@ const (
 	urlVerify        = "https://as.hypergryph.com/user/info/v1/basic"
 )
 
+// httpClient 复用连接，避免资源泄漏
+var httpClient = &http.Client{}
+
 // 游戏签到地址映射
 var signUrlMap = map[string]string{
 	"arknights": "https://zonai.skland.com/api/v1/game/attendance",
@@ -152,47 +155,82 @@ func string2Header(text string) (http.Header, error) {
 func GetToken(phone string, passwd string) (string, error) {
 	var accountInfo = loginInfo{Phone: phone, Password: passwd}
 	accountJson, _ := json.Marshal(accountInfo)
-	resp, err := http.Post(urlGetTokenByPwd, "application/json", bytes.NewBuffer(accountJson))
+	resp, err := httpClient.Post(urlGetTokenByPwd, "application/json", bytes.NewBuffer(accountJson))
 	if err != nil {
 		return "", errors.New("login Failed")
 	}
+	defer resp.Body.Close()
 	respString := getStrRespBody(resp)
 	if resp.StatusCode != 200 {
 		return "", errors.New("login Failed(status code not 200)")
 	}
 	s := getRespBody(respString, "data.token")
+	if s == nil {
+		return "", errors.New("login Failed(token not found in response)")
+	}
 	return s.(string), nil
 }
 
 func VerifyToken(token string) bool {
 	params := url.Values{}
 	params.Set("token", token)
-	resp, err := http.Get(urlVerify + "?" + params.Encode())
+	resp, err := httpClient.Get(urlVerify + "?" + params.Encode())
 	if err != nil {
 		return false
 	}
-	return getRespBody(getStrRespBody(resp), "msg").(string) == "OK"
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return false
+	}
+	body := getStrRespBody(resp)
+	msg := getRespBody(body, "msg")
+	if msg == nil {
+		return false
+	}
+	return msg.(string) == "OK"
 }
 
-func GetOauth(token string) string {
+func GetOauth(token string) (string, error) {
 	info := OauthInfo{token, "4ca99fa6b56cc2ba", 0}
 	js, _ := json.Marshal(info)
-	resp, _ := http.Post(urlOauth, "application/json", bytes.NewBuffer(js))
-	return getRespBody(getStrRespBody(resp), "data.code").(string)
+	resp, err := httpClient.Post(urlOauth, "application/json", bytes.NewBuffer(js))
+	if err != nil {
+		return "", fmt.Errorf("获取Oauth失败: %w", err)
+	}
+	defer resp.Body.Close()
+	body := getStrRespBody(resp)
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("获取Oauth失败(status: %d, body: %s)", resp.StatusCode, body)
+	}
+	code := getRespBody(body, "data.code")
+	if code == nil {
+		return "", fmt.Errorf("获取Oauth失败(code not found in response)")
+	}
+	return code.(string), nil
 }
 
-func GetCerd(code string) (string, string) {
+func GetCerd(code string) (string, string, error) {
 	info := CerdInfo{1, code}
 	js, _ := json.Marshal(info)
-	resp, _ := http.Post(urlCerd, "application/json", bytes.NewBuffer(js))
+	resp, err := httpClient.Post(urlCerd, "application/json", bytes.NewBuffer(js))
+	if err != nil {
+		return "", "", fmt.Errorf("获取Cerd失败: %w", err)
+	}
+	defer resp.Body.Close()
 	respString := getStrRespBody(resp)
+	if resp.StatusCode != 200 {
+		return "", "", fmt.Errorf("获取Cerd失败(status: %d, body: %s)", resp.StatusCode, respString)
+	}
 	cred := getRespBody(respString, "data.cred")
 	fixToken := getRespBody(respString, "data.token")
-	return cred.(string), fixToken.(string)
+	if cred == nil || fixToken == nil {
+		return "", "", fmt.Errorf("获取Cerd失败(cred or token not found in response)")
+	}
+	return cred.(string), fixToken.(string), nil
 }
 
 // GetCharacterList 获取并过滤角色列表
-func GetCharacterList(cred string, key string) []CharacterInfo {
+func GetCharacterList(cred string, key string) ([]CharacterInfo, error) {
 	h1 := setHeader()
 	u, _ := url.Parse(urlPlayerInfo)
 	jsoncode, _ := json.Marshal(h1)
@@ -206,17 +244,29 @@ func GetCharacterList(cred string, key string) []CharacterInfo {
 
 	req, _ := http.NewRequest("GET", urlPlayerInfo, nil)
 	req.Header = headers
-	resp, _ := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("获取角色列表失败: %w", err)
+	}
+	defer resp.Body.Close()
 
 	body := getStrRespBody(resp)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("获取角色列表失败(status: %d, body: %s)", resp.StatusCode, body)
+	}
 	data := getRespBody(body, "data.list")
 
 	var charList []CharacterInfo
 	if data == nil {
-		return charList
+		return charList, nil
 	}
 
-	for _, appItem := range data.([]interface{}) {
+	listData, ok := data.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("获取角色列表失败(unexpected data.list type)")
+	}
+
+	for _, appItem := range listData {
 		app := appItem.(map[string]any)
 		appCode := app["appCode"].(string)
 		bindingList := app["bindingList"].([]interface{})
@@ -251,7 +301,7 @@ func GetCharacterList(cred string, key string) []CharacterInfo {
 			charList = append(charList, info)
 		}
 	}
-	return charList
+	return charList, nil
 }
 
 // DoSign 执行签到动作
@@ -284,10 +334,11 @@ func DoSign(cred string, key string, char CharacterInfo) (map[string]string, err
 		req.Header.Set("sk-game-role", skGameRole)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	respString := getStrRespBody(resp)
 	code := int(getRespBody(respString, "code").(float64))
@@ -336,12 +387,28 @@ func DoAll(data settings.AccountList, isshowtimes bool) {
 	for i := range data.List {
 		if !RefreshToken(&data.List[i]) {
 			fmt.Printf("账号 %s 刷新Token失败\n", data.List[i].Phone)
+			failed++
 			continue
 		}
 
-		oauth := GetOauth(data.List[i].Token)
-		cred, fixToken := GetCerd(oauth)
-		chars := GetCharacterList(cred, fixToken)
+		oauth, err := GetOauth(data.List[i].Token)
+		if err != nil {
+			fmt.Printf("账号 %s %v\n", data.List[i].Phone, err)
+			failed++
+			continue
+		}
+		cred, fixToken, err := GetCerd(oauth)
+		if err != nil {
+			fmt.Printf("账号 %s %v\n", data.List[i].Phone, err)
+			failed++
+			continue
+		}
+		chars, err := GetCharacterList(cred, fixToken)
+		if err != nil {
+			fmt.Printf("账号 %s %v\n", data.List[i].Phone, err)
+			failed++
+			continue
+		}
 
 		for _, char := range chars {
 			result, err := DoSign(cred, fixToken, char)

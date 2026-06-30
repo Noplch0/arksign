@@ -4,3 +4,4 @@ configs/accounts.json
 *.exe
 main
 build/
+.claude/
