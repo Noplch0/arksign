@@ -32,7 +32,7 @@ func main() {
 	if *a {
 		fmt.Print("请输入添加账号：")
 		var phone string
-		fmt.Scanln(&phone)
+		_, _ = fmt.Scanln(&phone)
 		passwd, err := settings.ReadPassword("请输入密码：")
 		if err != nil {
 			fmt.Println("读取密码失败:", err)
@@ -62,7 +62,7 @@ func main() {
 			fmt.Printf("将在每日%02d:%02d签到\n", hour, minute)
 			cronstring := fmt.Sprintf("%d %d * * *", minute, hour)
 			c := cron.New()
-			c.AddFunc(cronstring, func() {
+			_, _ = c.AddFunc(cronstring, func() {
 				skisland.DoAll(data,false)
 			})
 			c.Start()

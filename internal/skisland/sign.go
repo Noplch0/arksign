@@ -426,7 +426,7 @@ func DoAll(data settings.AccountList, isshowtimes bool) {
 			}
 		}
 	}
-	settings.SaveAccountData("configs/accounts.json", data)
+	_ = settings.SaveAccountData("configs/accounts.json", data)
 	if isshowtimes {
 		fmt.Printf("\n任务结束：成功 %d, 失败 %d\n", success, failed)
 	}

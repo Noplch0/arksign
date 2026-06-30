@@ -24,8 +24,7 @@ func ReadPassword(prompt string) (string, error) {
 
 	// 恢复终端状态（同时恢复回显）
 	defer func() {
-		term.Restore(fd, oldState)
-		// 额外的安全措施：确保回显已恢复
+		_ = term.Restore(fd, oldState)
 		fmt.Print("\r")
 	}()
 

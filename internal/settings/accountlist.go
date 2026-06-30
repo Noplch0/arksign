@@ -40,7 +40,7 @@ func readAccountDataPlaintext(rawBytes []byte) (AccountList, error) {
 }
 
 func ReadAccountData(filename string) (AccountList, error) {
-	EnsureFileExists(filename, "")
+	_ = EnsureFileExists(filename, "")
 
 	rawBytes, err := os.ReadFile(filename)
 	if err != nil {
@@ -95,10 +95,7 @@ func AddAcountData(phone string, passwd string) bool {
 				accounts.List[i].Passwd = passwd
 				accounts.List[i].Token = ""
 				err := SaveAccountData("configs/accounts.json", accounts)
-				if err != nil {
-					return false
-				}
-				return true
+				return err == nil
 			} else {
 				return false
 			}
@@ -106,10 +103,7 @@ func AddAcountData(phone string, passwd string) bool {
 	}
 	accounts.List = append(accounts.List, AccountData{phone, passwd, ""})
 	err := SaveAccountData("configs/accounts.json", accounts)
-	if err != nil {
-		return false
-	}
-	return true
+	return err == nil
 }
 
 func GetAccountData(filepath string) (AccountList, int) {
@@ -121,7 +115,7 @@ func GetAccountData(filepath string) (AccountList, int) {
 		fmt.Println("未检测到已添加的账号！")
 		fmt.Printf("Press any key to exit...")
 		b := make([]byte, 1)
-		os.Stdin.Read(b)
+		_, _ = os.Stdin.Read(b)
 		return data, 0
 	} else {
 		return data, len(data.List)
