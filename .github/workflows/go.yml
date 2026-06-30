@@ -124,7 +124,7 @@ jobs:
           name: ${{ github.ref_name }}
           body_path: release_notes.md
           files: artifacts/**
-          draft: false
+          draft: true
           prerelease: false
           fail_on_unmatched_files: true
           token: ${{ secrets.GITHUB_TOKEN }}
