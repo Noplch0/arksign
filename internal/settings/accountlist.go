@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/thedevsaddam/gojsonq"
+	"golang.org/x/term"
 )
 
 type AccountData struct {
@@ -120,4 +121,137 @@ func GetAccountData(filepath string) (AccountList, int) {
 	} else {
 		return data, len(data.List)
 	}
+}
+
+const accountsPerPage = 3
+
+// DeleteAccountData 交互式删除账号，支持翻页和单键选择
+func DeleteAccountData() {
+	accounts, _ := ReadAccountData("configs/accounts.json")
+	if len(accounts.List) == 0 {
+		fmt.Println("未检测到已添加的账号！")
+		return
+	}
+
+	// 进入 raw 模式以捕获单键输入
+	fd := int(os.Stdin.Fd())
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		fmt.Println("无法进入终端raw模式:", err)
+		return
+	}
+	defer func() {
+		_ = term.Restore(fd, oldState)
+	}()
+
+	page := 0
+	totalPages := (len(accounts.List) + accountsPerPage - 1) / accountsPerPage
+
+	for {
+		// 校正页码（删除后可能越界）
+		if totalPages == 0 {
+			fmt.Print("\r\n没有账号了，退出。\r\n")
+			return
+		}
+		if page >= totalPages {
+			page = totalPages - 1
+		}
+		if page < 0 {
+			page = 0
+		}
+
+		// 清屏并绘制界面
+		drawPage(accounts.List, page, totalPages)
+
+		// 读取单键
+		buf := make([]byte, 1)
+		_, err := os.Stdin.Read(buf)
+		if err != nil {
+			break
+		}
+
+		key := buf[0]
+		switch key {
+		case '0':
+			// 退出
+			fmt.Print("\r\n已退出。\r\n")
+			return
+		case '-':
+			if page > 0 {
+				page--
+			}
+		case '=':
+			if page < totalPages-1 {
+				page++
+			}
+		case '1', '2', '4':
+			// 计算实际索引：键 '1'→偏移0, '2'→偏移1, '4'→偏移2
+			offset := keyOffset(key)
+			idx := page*accountsPerPage + offset
+			if idx < len(accounts.List) {
+				phone := maskPhoneLocal(accounts.List[idx].Phone)
+				// 读取确认输入（需要恢复终端以便读取行）
+				_ = term.Restore(fd, oldState)
+				result, _ := PromptForConfirmation("确定要删除账号 " + phone + " 吗")
+				if result {
+					accounts.List = append(accounts.List[:idx], accounts.List[idx+1:]...)
+					_ = SaveAccountData("configs/accounts.json", accounts)
+					totalPages = (len(accounts.List) + accountsPerPage - 1) / accountsPerPage
+				}
+				// 重新进入 raw 模式
+				oldState, err = term.MakeRaw(fd)
+				if err != nil {
+					fmt.Println("无法恢复终端模式:", err)
+					return
+				}
+			}
+		}
+	}
+}
+
+// keyOffset 将键字符映射到页内偏移
+func keyOffset(key byte) int {
+	switch key {
+	case '1':
+		return 0
+	case '2':
+		return 1
+	case '4':
+		return 2
+	default:
+		return -1
+	}
+}
+
+// drawPage 绘制当前页面的账号列表
+func drawPage(list []AccountData, page, totalPages int) {
+	// 清屏
+	fmt.Print("\r\033[2J\033[H")
+
+	fmt.Printf("=== 账号管理 (共 %d 个账号) [第 %d/%d 页] ===\r\n\r\n", len(list), page+1, totalPages)
+
+	start := page * accountsPerPage
+	end := start + accountsPerPage
+	if end > len(list) {
+		end = len(list)
+	}
+
+	// 键映射：位置 0→'1', 1→'2', 2→'4'
+	keys := []byte{'1', '2', '4'}
+	for i := start; i < end; i++ {
+		offset := i - start
+		fmt.Printf("  %c. %s\r\n", keys[offset], maskPhoneLocal(list[i].Phone))
+	}
+
+	fmt.Print("\r\n========================================\r\n")
+	fmt.Print("  [1/2/4] 删除对应账号  [0] 退出  [-=] 翻页\r\n")
+	fmt.Print("========================================\r\n")
+}
+
+// maskPhoneLocal 隐藏手机号中间四位
+func maskPhoneLocal(phone string) string {
+	if len(phone) < 7 {
+		return "***"
+	}
+	return phone[:3] + "****" + phone[len(phone)-4:]
 }

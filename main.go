@@ -17,6 +17,7 @@ var (
 )
 
 var a = flag.Bool("a", false, "添加用户模式")
+var d = flag.Bool("d", false, "删除账号模式")
 var t = flag.String("t", "4:30", `每日运行签到任务时间,例如"8:30"`)
 var o = flag.Bool("o", false, "只运行一次")
 var v = flag.Bool("v", false, "显示版本信息")
@@ -26,6 +27,11 @@ func main() {
 
 	if *v {
 		fmt.Printf("arkSign %s (built %s)\n", Version, BuildTime)
+		return
+	}
+
+	if *d {
+		settings.DeleteAccountData()
 		return
 	}
 
