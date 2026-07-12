@@ -33,6 +33,58 @@ const (
 // httpClient 复用连接，避免资源泄漏
 var httpClient = &http.Client{}
 
+// timeOffset 本地时间与服务器时间的偏移量（秒），用于校准时间戳
+var timeOffset int64 = 0
+
+// timeSyncCh 用于等待首次时间同步完成
+var timeSyncInit = make(chan struct{})
+
+func init() {
+	// 程序启动时异步获取服务器时间
+	go syncServerTime()
+}
+
+// syncServerTime 从服务器响应中获取 Date 头来校准本地时间
+func syncServerTime() {
+	client := &http.Client{Timeout: 10 * time.Second}
+	// 尝试从多个来源同步时间
+	urls := []string{
+		"https://as.hypergryph.com/user/auth/v1/token_by_phone_password",
+		"https://zonai.skland.com/api/v1/game/player/binding",
+	}
+	for _, u := range urls {
+		resp, err := client.Head(u)
+		if err != nil {
+			continue
+		}
+		dateHeader := resp.Header.Get("Date")
+		resp.Body.Close()
+		if dateHeader == "" {
+			continue
+		}
+		serverTime, err := time.Parse(time.RFC1123, dateHeader)
+		if err != nil {
+			continue
+		}
+		timeOffset = serverTime.Unix() - time.Now().Unix()
+		close(timeSyncInit)
+		return
+	}
+	// 如果所有来源都失败，偏移量为 0（使用本地时间）
+	close(timeSyncInit)
+}
+
+// nowUnix 返回校准后的 Unix 时间戳（服务器时间）
+func nowUnix() int64 {
+	select {
+	case <-timeSyncInit:
+		return time.Now().Unix() + timeOffset
+	default:
+		// 尚未完成同步，先用本地时间
+		return time.Now().Unix()
+	}
+}
+
 // 游戏签到地址映射
 var signUrlMap = map[string]string{
 	"arknights": "https://zonai.skland.com/api/v1/game/attendance",
@@ -116,7 +168,7 @@ func agent(cred string, header2 nHeader) headerAgent {
 func setHeader() header {
 	return header{
 		Platform:  "",
-		Timestamp: strconv.FormatInt(time.Now().Unix(), 10),
+		Timestamp: strconv.FormatInt(nowUnix(), 10),
 		Did:       "",
 		Vname:     "",
 	}
