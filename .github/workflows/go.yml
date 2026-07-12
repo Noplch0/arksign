@@ -106,6 +106,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           pattern: arkSign_*
@@ -114,9 +118,44 @@ jobs:
 
       - name: Generate release notes
         run: |
-          echo "## 变更内容" > release_notes.md
+          # 获取上一个 tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          echo "# ${GITHUB_REF_NAME}" > release_notes.md
           echo "" >> release_notes.md
-          git log $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo HEAD~1)..HEAD --oneline --no-merges >> release_notes.md 2>/dev/null || echo "* 初始发布" >> release_notes.md
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "## 🆕 初始发布" >> release_notes.md
+            echo "" >> release_notes.md
+            git log --oneline --no-merges >> release_notes.md
+          else
+            echo "## 🔄 变更内容 (${PREV_TAG} → ${GITHUB_REF_NAME})" >> release_notes.md
+            echo "" >> release_notes.md
+
+            # 按类型分组（Conventional Commits 风格）
+            echo "### ✨ 新功能" >> release_notes.md
+            git log ${PREV_TAG}..HEAD --oneline --no-merges --grep="^feat" 2>/dev/null | sed 's/^[a-f0-9]* /* /' >> release_notes.md || true
+            if ! git log ${PREV_TAG}..HEAD --oneline --no-merges --grep="^feat" 2>/dev/null | grep -q .; then
+              echo "_无_" >> release_notes.md
+            fi
+
+            echo "" >> release_notes.md
+            echo "### 🐛 修复" >> release_notes.md
+            git log ${PREV_TAG}..HEAD --oneline --no-merges --grep="^fix" 2>/dev/null | sed 's/^[a-f0-9]* /* /' >> release_notes.md || true
+            if ! git log ${PREV_TAG}..HEAD --oneline --no-merges --grep="^fix" 2>/dev/null | grep -q .; then
+              echo "_无_" >> release_notes.md
+            fi
+
+            echo "" >> release_notes.md
+            echo "### 📦 其他" >> release_notes.md
+            git log ${PREV_TAG}..HEAD --oneline --no-merges --invert-grep --grep="^feat\|^fix" 2>/dev/null | sed 's/^[a-f0-9]* /* /' >> release_notes.md || true
+            if ! git log ${PREV_TAG}..HEAD --oneline --no-merges --invert-grep --grep="^feat\|^fix" 2>/dev/null | grep -q .; then
+              echo "_无_" >> release_notes.md
+            fi
+
+            echo "" >> release_notes.md
+            echo "**完整对比**: [${PREV_TAG}...${GITHUB_REF_NAME}](https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${GITHUB_REF_NAME})" >> release_notes.md
+          fi
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
