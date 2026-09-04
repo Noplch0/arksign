@@ -67,22 +67,24 @@ func syncServerTime() {
 			continue
 		}
 		timeOffset = serverTime.Unix() - time.Now().Unix()
+		if timeOffset != 0 {
+			log.Printf("时间同步完成，本地时间偏移: %d 秒\n", timeOffset)
+		} else {
+			log.Println("时间同步完成，本地时间准确")
+		}
 		close(timeSyncInit)
 		return
 	}
 	// 如果所有来源都失败，偏移量为 0（使用本地时间）
+	log.Println("警告: 无法同步服务器时间，将使用本地时间")
 	close(timeSyncInit)
 }
 
 // nowUnix 返回校准后的 Unix 时间戳（服务器时间）
 func nowUnix() int64 {
-	select {
-	case <-timeSyncInit:
-		return time.Now().Unix() + timeOffset
-	default:
-		// 尚未完成同步，先用本地时间
-		return time.Now().Unix()
-	}
+	// 阻塞等待时间同步完成，避免使用偏移过大的本地时间
+	<-timeSyncInit
+	return time.Now().Unix() + timeOffset
 }
 
 // 游戏签到地址映射
@@ -435,6 +437,9 @@ func GetAwardlist(awardlist map[string]string) string {
 }
 
 func DoAll(data settings.AccountList, isshowtimes bool) {
+	// 确保时间同步完成后再开始签到
+	<-timeSyncInit
+	
 	success, failed := 0, 0
 	for i := range data.List {
 		if !RefreshToken(&data.List[i]) {
